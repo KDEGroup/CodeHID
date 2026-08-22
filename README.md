@@ -12,11 +12,16 @@ It has two core components:
 - CoSQA
 - ProCQA
 
+## Qualitative Examples
+
+See [Hierarchical DocID Generation Examples](examples/docid_generation_cases.md) for three real cases from the CoSQA development split illustrating constrained DocID generation, shared-prefix branching, and fine-grained competition within the learned hierarchy.
+
 ## Repository Layout
 
 ```text
 CodeHID/
 ├── codehid/
+├── examples/                    # Qualitative DocID generation examples
 ├── stage1_docid_build/
 ├── train_configs/
 ├── train.py
