@@ -1,72 +1,128 @@
-# CodeHID
+# CodeHID: Learning an Addressable Hierarchical Code Index for Generative Code Retrieval
 
-CodeHID is a generative code retrieval framework that reformulates code retrieval from flat candidate matching to coarse-to-fine semantic address generation.
+[📖 Paper](https://arxiv.org/abs/2608.24089) | [🚀 GitHub](https://github.com/KDEGroup/CodeHID)
 
-It has two core components:
+## 📣 News
 
-- Pseudo-Neighbor Guided DocID Learning: builds a globally static hierarchical index with multi-level residual quantization and k-nearest-neighbor pseudo-supervision.
-- Dual-Phase DocID Generation Guidance: improves training with hard negatives and rank distillation, and improves inference with candidate constraints and prefix-aware decoding.
+- CodeHID has been accepted to **WSDM 2027 Findings**.
+- **[2026/08/25]** Our [preprint](https://arxiv.org/abs/2608.24089) is available on arXiv.
 
-## Benchmarks
+## 🔥 Overview
 
-- CoSQA
-- ProCQA
+**CodeHID reformulates code retrieval as coarse-to-fine semantic address generation over a learned hierarchical code index.** Given a natural-language query, it generates a hierarchical document identifier (DocID) that points to the target code snippet. Shared prefixes organize related snippets into semantic regions, while deeper tokens distinguish individual implementations.
 
-## Qualitative Examples
+![Overview of CodeHID: offline hierarchical DocID construction and dual-phase DocID generation guidance.](assets/overall_framework.png)
 
-See [Hierarchical DocID Generation Examples](examples/docid_generation_cases.md) for three real cases from the CoSQA development split illustrating constrained DocID generation, shared-prefix branching, and fine-grained competition within the learned hierarchy.
+*Overview of CodeHID. Stage I learns a globally static hierarchical DocID space. Stage II learns to navigate this space through training-time ranking enhancement and inference-time prefix guidance. [View the full-resolution PDF](assets/overall_framework.pdf).*
 
-## Repository Layout
+CodeHID consists of two core components:
 
-```text
-CodeHID/
-├── codehid/
-├── examples/                    # Qualitative DocID generation examples
-├── stage1_docid_build/
-├── train_configs/
-├── train.py
-├── eval.py
-├── run_3gpu.sh
-└── requirements.txt
-```
+1. **Pseudo-Neighbor Guided DocID Learning.** We encode code snippets and apply multi-level residual quantization to construct hierarchical DocIDs. A $k$-NN graph provides level-wise pseudo-supervision: semantic neighbors are encouraged to share prefixes at appropriate depths, while negative separation preserves the distinction between different targets. The resulting identifiers are built offline and remain fixed across queries.
+2. **Dual-Phase DocID Generation Guidance.** During training, hard-negative mining, pairwise preference learning, and rank distillation improve discrimination among confusable DocIDs. During inference, query-relevant candidates define valid decoding paths, and prefix-level relevance scores guide beam search. The generated DocID is then resolved to its code snippet through the static lookup.
+
+### Main Results
+
+CodeHID achieves the following results on CoSQA and the Python/Java subsets of ProCQA (Table 1 of the paper):
+
+| Benchmark | Hit@1 | Hit@3 | Hit@5 | MRR@20 |
+| --- | ---: | ---: | ---: | ---: |
+| CoSQA | 0.744 | 0.783 | 0.792 | 0.766 |
+| ProCQA-Python | 0.597 | 0.773 | 0.828 | 0.706 |
+| ProCQA-Java | 0.520 | 0.734 | 0.825 | 0.654 |
+
+CodeHID obtains the best Hit@1 and MRR@20 across all three settings among the compared baselines. See the [paper](https://arxiv.org/abs/2608.24089) for the full comparison and ablation studies.
 
 ## Setup
 
 ```bash
+git clone https://github.com/KDEGroup/CodeHID.git
+cd CodeHID
 pip install -r requirements.txt
 ```
 
-## Default Settings
+The commands below illustrate the CoSQA workflow. Replace `/path/to/...` with your local dataset and checkpoint paths. Model names can be Hugging Face identifiers or local model directories; training model settings are defined in [codehid/configs/models/codehid_codebert.yaml](codehid/configs/models/codehid_codebert.yaml) and [train_configs/codehid_finetune.yaml](train_configs/codehid_finetune.yaml).
 
-The KNN-related defaults are built into `stage1_docid_build/rqvae/train_rqvae.py`:
+## Training
 
-- `WORK_DIR` can be set to any local path you choose.
-- `KNN_K=8`
-- `KNN_BATCH_SIZE=2048`
-- `KNN_LOSS_WEIGHT=0.03`
-- `KNN_LOSS_SCHEDULE=linear_decay_to_zero`
-- `KNN_DECAY_START_RATIO=0.3`
-- `KNN_DECAY_END_RATIO=0.7`
-- `KNN_TEMPERATURE=0.35`
-- `KNN_PREFIX_WEIGHTS=0.8 0.35 0.12 0.03`
-- `KNN_AUTO_THRESHOLDS=1`
-- `KNN_THRESHOLD_QUANTILES=0.85 0.95 0.99 0.999`
-- `KNN_NUM_NEGATIVES=4`
-- `KNN_NEGATIVE_WEIGHT=0.6`
+### Stage I: Build Hierarchical DocIDs
 
-## Main Workflows
+Prepare the CoSQA train/dev JSON files, then run:
 
-- Build hierarchical DocIDs:
-  - `WORK_DIR=<your_work_dir> USE_KNN_PREFIX_LOSS=1 KNN_K=8 KNN_BATCH_SIZE=2048 KNN_LOSS_WEIGHT=0.03 KNN_LOSS_SCHEDULE=linear_decay_to_zero KNN_DECAY_START_RATIO=0.3 KNN_DECAY_END_RATIO=0.7 KNN_TEMPERATURE=0.35 KNN_PREFIX_WEIGHTS="0.8 0.35 0.12 0.03" KNN_AUTO_THRESHOLDS=1 KNN_THRESHOLD_QUANTILES="0.85 0.95 0.99 0.999" KNN_NUM_NEGATIVES=4 KNN_NEGATIVE_WEIGHT=0.6 bash stage1_docid_build/run_stage1_pipeline.sh cuda:0 "$WORK_DIR" <encoder_path> <train_json> <dev_json>`
-- Build GraphCodeBERT embeddings:
-  - `python stage1_docid_build/encode_code_docs.py --docs_jsonl <work_dir>/docs.jsonl --output_npy <work_dir>/docs.emb-graphcodebert.npy --model_name <graphcodebert_path> --text_mode code --batch_size 32 --max_length 512 --device cuda:0`
-- Train the retriever:
-  - `bash run_3gpu.sh`
-- Evaluate a checkpoint:
-  - `python eval.py --ckpt-path <ckpt> --dataset-path <valid.jsonl> --docid-vocab-path <doc_index_to_docid.json> --dual-phase-guidance-infer-doc-emb-path <docs.emb-graphcodebert.npy> --constrained-decode --dual-phase-guidance-infer-enable --num-beams 20`
+```bash
+export CODEHID_WORK_DIR="$PWD/stage1_docid_build/data/cosqa_docid_build"
 
-## Notes
+bash stage1_docid_build/run_stage1_pipeline.sh \
+  cuda:0 \
+  "$CODEHID_WORK_DIR" \
+  microsoft/graphcodebert-base \
+  /path/to/cosqa_train.json \
+  /path/to/cosqa_dev.json
+```
 
-- DocIDs are globally static and query-independent.
-- The hierarchical prefix structure is designed to preserve semantic locality.
-- This repository is intended for anonymous release.
+The pipeline prepares positive query-code pairs, encodes the corpus, builds the pseudo-neighbor graph, trains the residual quantizer, and rewrites the data with hierarchical DocIDs. Pseudo-neighbor supervision is enabled by default with `k=8` and loss weight `0.03`.
+
+The main outputs are:
+
+```text
+stage1_docid_build/data/cosqa_docid_build/
+├── docs.jsonl
+├── docs.emb-codebert.npy
+└── final/
+    ├── train.jsonl
+    ├── valid.jsonl
+    └── doc_index_to_docid.json
+```
+
+The embedding filename is `docs.emb-codebert.npy` even when GraphCodeBERT is used as the encoder. Keep the document order consistent between this embedding array and `doc_index_to_docid.json`.
+
+See [Stage I documentation](stage1_docid_build/README.md) for additional settings.
+
+### Stage II: Train the Query-to-DocID Generator
+
+After Stage I, launch the provided three-GPU training script:
+
+```bash
+DATASET_FINAL_DIR="$CODEHID_WORK_DIR/final" \
+CUDA_VISIBLE_DEVICES=0,1,2 \
+bash run_3gpu.sh
+```
+
+The script uses [train_configs/codehid_finetune.yaml](train_configs/codehid_finetune.yaml) and enables training-side ranking guidance by default. Checkpoints are saved under `output/codehid_codebert_dsi/`.
+
+## Inference
+
+Evaluate a trained checkpoint with candidate constraints and prefix-aware decoding:
+
+```bash
+python eval.py \
+  --ckpt-path /path/to/checkpoint.pth \
+  --dataset-path "$CODEHID_WORK_DIR/final/valid.jsonl" \
+  --docid-vocab-path "$CODEHID_WORK_DIR/final/doc_index_to_docid.json" \
+  --dual-phase-guidance-infer-doc-emb-path "$CODEHID_WORK_DIR/docs.emb-codebert.npy" \
+  --dual-phase-guidance-infer-doc-index-to-docid-path "$CODEHID_WORK_DIR/final/doc_index_to_docid.json" \
+  --constrained-decode \
+  --dual-phase-guidance-infer-enable \
+  --dual-phase-guidance-infer-lexical-topk 3000 \
+  --dual-phase-guidance-infer-lexical-bonus-weight 0.10 \
+  --num-beams 20
+```
+
+This example evaluates the prepared development split. The beam size (`20`), candidate set size (`3000`), and prefix bonus weight (`0.10`) follow the paper's inference settings.
+
+For concrete examples of shared-prefix branching and fine-grained candidate competition, see [Hierarchical DocID Generation Examples](examples/docid_generation_cases.md).
+
+## ⭐️ Citation
+
+If you find CodeHID useful in your research, please cite our paper:
+
+```bibtex
+@misc{li2026codehidlearningaddressablehierarchical,
+  title={CodeHID: Learning an Addressable Hierarchical Code Index for Generative Code Retrieval},
+  author={Zhen Li and Yuhong Chen and Wenhao Xu and Xiaodong Li and Hui Li},
+  year={2026},
+  eprint={2608.24089},
+  archivePrefix={arXiv},
+  primaryClass={cs.IR},
+  url={https://arxiv.org/abs/2608.24089}
+}
+```
