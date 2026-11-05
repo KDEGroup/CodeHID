@@ -13,7 +13,7 @@
 
 ![Overview of CodeHID: offline hierarchical DocID construction and dual-phase DocID generation guidance.](assets/overall_framework.png)
 
-*Overview of CodeHID. Stage I learns a globally static hierarchical DocID space. Stage II learns to navigate this space through training-time ranking enhancement and inference-time prefix guidance. [View the full-resolution PDF](assets/overall_framework.pdf).*
+*Overview of CodeHID. Stage I learns a globally static hierarchical DocID space. Stage II learns to navigate this space through training-time ranking enhancement and inference-time prefix guidance.*
 
 CodeHID consists of two core components:
 
